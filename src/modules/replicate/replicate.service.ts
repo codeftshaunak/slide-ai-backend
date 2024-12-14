@@ -1,71 +1,69 @@
 import { Injectable, Logger } from '@nestjs/common';
-import axios from 'axios';
+import * as dotenv from 'dotenv';
+// Use require instead of import to handle non-default exports
+const Replicate = require('replicate');
+
+// Load environment variables
+dotenv.config();
+
+// Interfaces for input and output structure
+interface StartPredictionResponse {
+  urls: {
+    get: string; // URL to poll for prediction status
+  };
+}
+
+interface PredictionStatusResponse {
+  status: 'starting' | 'processing' | 'succeeded' | 'failed'; // Prediction status
+  output?: any; // The output of the prediction if successful
+}
+
+interface ReplicateInput {
+  prompt: string;
+  max_new_tokens: number;
+  prompt_template: string;
+}
 
 @Injectable()
 export class ReplicateService {
-    private readonly logger = new Logger(ReplicateService.name);
-    private readonly baseUrl = 'https://api.replicate.com/v1/predictions';
-    private readonly replicateToken = process.env.REPLICATE_API_TOKEN;
+  private readonly logger = new Logger(ReplicateService.name);
+  private readonly replicateToken = process.env.REPLICATE_API_TOKEN;
 
-    constructor() {
-        if (!this.replicateToken) {
-            this.logger.error('REPLICATE_API_TOKEN is not defined in environment variables');
-            throw new Error('Missing Replicate API token');
-        }
+  // Ensure the token is present
+  constructor() {
+    if (!this.replicateToken) {
+      throw new Error('REPLICATE_API_TOKEN is not defined in environment variables');
     }
+  }
 
-    async generateResponse(prompt: string): Promise<string> {
-        if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new Error('Invalid prompt provided');
-        }
+  // Main method for generating response from Replicate
+  async generateResponse(prompt: string): Promise<string> {
+    const replicate = new Replicate({  // Use the constructor directly with require
+      auth: this.replicateToken,
+    });
 
-        try {
-            const model = "meta/meta-llama-3-8b-instruct";
-            this.logger.log(`Starting prediction with model: ${model}`);
-            this.logger.debug(`Prompt: ${prompt}`);
+    // Define the input structure
+    const input: ReplicateInput = {
+      prompt,
+      max_new_tokens: 512,
+      prompt_template:
+        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+    };
 
-            interface StartResponse {
-                urls: {
-                    stream: string; // URL for streaming output
-                };
-            }
+    try {
+      // Call the Replicate API to generate a response
+      const output = await replicate.run('meta/meta-llama-3-8b-instruct', { input });
 
-            const startResponse = await axios.post<StartResponse>(
-                this.baseUrl,
-                {
-                    model,
-                    input: {
-                        prompt,
-                        max_new_tokens: 512,
-                        prompt_template: "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
-                    },
-                    stream: true, // Enable streaming if supported
-                },
-                {
-                    headers: {
-                        Authorization: `Token ${this.replicateToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                }
-            );
+      // Ensure the output is a string, you can use JSON.stringify if it's an object
+      const outputString = typeof output === 'string' ? output : JSON.stringify(output);
 
-            console.log(startResponse);
+      // Log the output (for debugging purposes)
+      this.logger.log('Prediction Output:', outputString);
 
-
-            // Now TypeScript knows that startResponse.data.urls exists
-            const predictionUrl = startResponse.data.urls.stream;
-
-            this.logger.log(`Prediction started. Streaming URL: ${predictionUrl}`);
-
-            // Step 2: Return Stream URL
-            return predictionUrl;
-        } catch (error) {
-            // if (axios.isAxiosError(error)) {
-            //     this.logger.error('Axios error occurred', error.response?.data || error.message);
-            // } else {
-            //     this.logger.error('Unexpected error', error);
-            // }
-            throw new Error(`Failed to generate response: ${error.message}`);
-        }
+      return outputString; // Return the string
+    } catch (error) {
+      this.logger.error('Error generating response:', error);
+      throw new Error(`Failed to generate response: ${error.message}`);
     }
+  }
 }
