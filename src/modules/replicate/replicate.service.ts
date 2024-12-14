@@ -51,9 +51,15 @@ export class ReplicateService {
 
         try {
             const output = await replicate.run('meta/meta-llama-3-8b-instruct', { input });
-            const outputString = typeof output === 'string' ? output : JSON.stringify(output);
+            let outputString: string;
 
-            this.logger.log('Prediction Output:', outputString);
+            if (Array.isArray(output)) {
+                outputString = output.join(' '); // Join array elements with a space
+            } else {
+                outputString = typeof output === 'string' ? output : JSON.stringify(output);
+            }
+
+            this.logger.log('Formatted Prediction Output:', outputString);
 
             return {
                 status: 200,
